@@ -136,6 +136,14 @@ function rollEvasion(attacker, defender, defenderRanks, currentTurn) {
   return Math.random() < finalEvasionPct / 100;
 }
 
+// 상대 포켓몬에게 영향을 주는 기술인지 (데미지 / 상태이상·상태변화 / 상대 랭크 변화)
+function targetsOpponent(moveData) {
+  if (moveData.power > 0) return true;
+  if (moveData.effect?.status || moveData.effect?.volatile) return true;
+  const rank = moveData.rank ?? {};
+  return !!(rank.targetAtk || rank.targetDef || rank.targetSpd);
+}
+
 // 급소 판정. 급소율 = 공격력 * 2% (100% 상한). 급소 시 최종 피해량 x1.5.
 function rollCrit(attacker) {
   return Math.random() < Math.min(1, (attacker.atk ?? 0) * 0.02);
@@ -348,15 +356,20 @@ export function useMove(room, myKey, moveIdx) {
   const defender = entries[oppKey][activeIdx[oppKey]];
   if (!attacker || !defender) return fail("포켓몬 없음");
 
+  // 고스트다이브로 사라진 상태면 어떤 버튼을 눌렀든 그 기술로 강제 공격 (PP는 사라질 때 이미 소모)
+  const diving = attacker.ghostDive ?? null;
+  if (diving) moveIdx = diving.moveIdx;
+
   const moveSlot = attacker.moves?.[moveIdx];
-  if (!moveSlot || (moveSlot.pp ?? 0) <= 0) return fail("PP 없음"); // PP 없으면 사용 불가
+  if (!moveSlot) return fail("기술 없음");
+  if (!diving && (moveSlot.pp ?? 0) <= 0) return fail("PP 없음"); // PP 없으면 사용 불가
 
   const moveData = MOVES[moveSlot.name];
   if (!moveData) return fail(`moves.js에 "${moveSlot.name}" 기술이 정의되어 있지 않음`);
 
   // PP 소모
   const newMoves = [...attacker.moves];
-  newMoves[moveIdx] = { ...moveSlot, pp: moveSlot.pp - 1 };
+  if (!diving) newMoves[moveIdx] = { ...moveSlot, pp: moveSlot.pp - 1 };
   let currentAttacker = { ...attacker, moves: newMoves };
   entries[myKey][activeIdx[myKey]] = currentAttacker;
 
@@ -390,6 +403,9 @@ export function useMove(room, myKey, moveIdx) {
     }
   }
 
+  // 사라진 상태는 이번 턴으로 끝 (공격하든, 얼음/마비/혼란 등으로 행동이 저지되든)
+  if (diving) currentAttacker = { ...currentAttacker, ghostDive: null };
+
   entries[myKey][activeIdx[myKey]] = currentAttacker;
 
   if (blocked) {
@@ -409,6 +425,19 @@ export function useMove(room, myKey, moveIdx) {
       log.push(`${faint.name}${josa(faint.name, "은는")} 쓰러졌다!`);
       directPendingSide = myKey;
     }
+  } else if (moveData.ghostDive && !diving) {
+    // 고스트다이브 1턴째: 공격하지 않고 사라짐. 다음 내 턴에 같은 기술로 강제 공격.
+    const attackerName = currentAttacker.name ?? "포켓몬";
+    log.push(`${attackerName}의 ${moveSlot.name}!`);
+    log.push(`${attackerName}${josa(attackerName, "은는")} 어디론가 사라졌다!`);
+    currentAttacker = { ...currentAttacker, ghostDive: { moveIdx } };
+    entries[myKey][activeIdx[myKey]] = currentAttacker;
+  } else if (defender.ghostDive && targetsOpponent(moveData)) {
+    // 상대가 고스트다이브로 사라져 있으면 상대를 노리는 기술은 반드시 빗나감
+    const attackerName = currentAttacker.name ?? "포켓몬";
+    const defenderName = defender.name ?? "포켓몬";
+    log.push(`${attackerName}의 ${moveSlot.name}!`);
+    log.push(`${defenderName}에게는 맞지 않았다!`);
   } else {
     const attackerName = currentAttacker.name ?? "포켓몬";
     log.push(`${attackerName}의 ${moveSlot.name}!`);
@@ -581,6 +610,7 @@ export function switchPokemon(room, myKey, targetIdx) {
 
   if (!target || target.hp <= 0) return fail("쓰러진 포켓몬"); // 쓰러진 포켓몬으론 못 나감
   if (!pendingSwitch && targetIdx === activeIdx[myKey]) return fail("이미 출전 중"); // 이미 나가 있는 포켓몬
+  if (!pendingSwitch && myArr[activeIdx[myKey]]?.ghostDive) return fail("고스트다이브 중에는 교체 불가");
 
   const prevPkmn = myArr[activeIdx[myKey]];
   activeIdx[myKey] = targetIdx;

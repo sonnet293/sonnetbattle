@@ -145,6 +145,7 @@ export const MOVES = {
   "에너지볼":       { power: 40, type: "풀", accuracy: 100, alwaysHit: false, effect: null,
                       rank: { chance: 0.1, targetDef: -1, turns: 2 } },
   "솔라빔":         { power: 40, type: "풀", accuracy: 100, alwaysHit: false, effect: null },
+  "파워휩":         { power: 70, type: "풀", accuracy: 85, alwaysHit: false, effect: null },
   "솔라블레이드": { power: 60, type: "풀", accuracy: 100, alwaysHit: false, effect: null, solarBlade: true },
   "나뭇잎":         { power: 30, type: "풀", accuracy: 100, alwaysHit: false, effect: null },
   "잎날가르기":     { power: 40, type: "풀", accuracy: 95,  alwaysHit: false, effect: null, highCrit: true, aoeEnemy: true },

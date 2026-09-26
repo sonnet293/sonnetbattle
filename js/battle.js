@@ -372,7 +372,9 @@ function renderMoveButtons(room) {
       !room.battle_winner &&
       !isAnimating &&
       !actionInFlight;
-    const usable = canAct && (move.pp ?? 0) > 0;
+    // 고스트다이브로 사라진 상태면 그 기술만 누를 수 있음 (다음 턴 강제 공격, PP는 이미 소모됨)
+    const diving = myPkmn.ghostDive;
+    const usable = diving ? canAct && diving.moveIdx === i : canAct && (move.pp ?? 0) > 0;
 
     const moveData = MOVES[move.name];
     btn.style.display = "inline-flex";
@@ -411,6 +413,7 @@ function renderBenchSide(dataKey, uiKey, room) {
     myKey === dataKey &&
     !pendingSwitch &&
     !anyonePending &&
+    !entry[activeIdx]?.ghostDive &&
     !room.battle_winner &&
     !isAnimating &&
     !actionInFlight &&
