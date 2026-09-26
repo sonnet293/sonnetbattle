@@ -48,6 +48,9 @@ export const BATTLE_RESET_FIELDS = {
   battle_log: [],
   battle_event_log: [],
   battle_winner: null,
+  intro_ready_p1: false,
+  intro_ready_p2: false,
+  intro_done: false,
 };
 
 const ok = (update) => ({ ok: true, update });
@@ -279,6 +282,10 @@ export function startGame(room, p1Entry, p2Entry) {
     p2_active_idx: 0,
     game_started: true,
     game_started_at: Date.now(),
+    // 새 게임마다 인트로(양쪽 터치 → VS 연출)를 처음부터 다시 진행
+    intro_ready_p1: false,
+    intro_ready_p2: false,
+    intro_done: false,
   });
 }
 

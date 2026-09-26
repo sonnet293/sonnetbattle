@@ -46,8 +46,9 @@ const isSpectatorParam = new URLSearchParams(location.search).get("spectator") =
 let myUid          = null
 let mySlot         = null
 let touched        = false
-let introDone      = false  // 내 인트로 5초가 끝났는지
-let opponentReady  = false  // 상대방이 ready를 올렸는지 (한번 true되면 유지)
+let bothReady      = false  // 양쪽 모두 터치했는지 (한번 true되면 유지)
+let introStarted   = false
+let latestRoom     = null
 
 function wait(ms) { return new Promise(r => setTimeout(r, ms)) }
 
@@ -90,15 +91,12 @@ async function onTouched() {
   // BGM — 터치 컨텍스트 안에서 바로 재생 (인트로 중에도 들리게)
   playBgm()
 
-  const snap = await getDoc(roomRef)
-  const room = snap.data()
+  readyStatus.innerText = "상대방을 기다리는 중..."
 
-  // VS 인트로 재생
-  playVsIntro(room)
-
-  // Firestore에 내 ready 마킹
+  // Firestore에 내 ready 마킹 → 양쪽 다 터치하면 listenReady에서 인트로 시작
   const field = mySlot === "p1" ? "intro_ready_p1" : "intro_ready_p2"
   await updateDoc(roomRef, { [field]: true })
+  maybeStartIntro()
 }
 
 function listenReady() {
@@ -106,18 +104,18 @@ function listenReady() {
     const room = snap.data()
     if (!room) return
 
-    const r1 = !!room.intro_ready_p1
-    const r2 = !!room.intro_ready_p2
-
-    // opponentReady는 한번 true되면 false로 안 돌아감
-    // → intro_ready 필드가 나중에 초기화돼도 영향 없음
-    if (r1 && r2) opponentReady = true
-
-    if (touched && !opponentReady) readyStatus.innerText = "상대방을 기다리는 중..."
-
-    // 내 인트로가 끝난 상태에서 상대방 ready 도착 → 배틀 시작
-    if (opponentReady && introDone) startBattle()
+    latestRoom = room
+    if (room.intro_ready_p1 && room.intro_ready_p2) bothReady = true
+    maybeStartIntro()
   })
+}
+
+// 나도 터치했고 상대도 터치했을 때 양쪽이 동시에 VS 인트로를 재생
+function maybeStartIntro() {
+  if (introStarted || !touched || !bothReady || !latestRoom) return
+  introStarted = true
+  readyStatus.innerText = ""
+  playVsIntro(latestRoom)
 }
 
 async function playVsIntro(room) {
@@ -149,19 +147,9 @@ async function playVsIntro(room) {
   innerLeft.classList.add("drift-left")
   innerRight.classList.add("drift-right")
 
-  // 5초 인트로 대기
+  // 5초 인트로 후 배틀 시작 (양쪽 다 터치한 뒤에만 인트로가 시작되므로 대기 없음)
   await wait(5000)
-  introDone = true
-
-  if (opponentReady) {
-    // 상대방도 이미 ready → 바로 배틀
-    startBattle()
-  } else {
-    // 상대방 아직 대기 중 → listenReady에서 처리
-    vsScreen.style.opacity = "0.3"
-    readyStatus.style.cssText = "color:white; font-size:clamp(1rem,3vw,1.4rem); position:absolute; bottom:10vh; width:100%; text-align:center; z-index:10;"
-    readyStatus.innerText = "상대방을 기다리는 중..."
-  }
+  startBattle()
 }
 
 function startBattle() {
