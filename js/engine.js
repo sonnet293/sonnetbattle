@@ -201,7 +201,7 @@ function buildTurnAdvanceUpdate(room, entries, activeIdx, currentTurn, log, even
     if (tick.damage > 0) {
       entries[side][activeIdx[side]] = tick.pokemon;
       log.push(tick.message);
-      events.push({ logIndex: log.length - 1, type: "hit", side, hp: tick.pokemon.hp, hasAttacker: false });
+      events.push({ logIndex: log.length - 1, type: "hit", side, hp: tick.pokemon.hp, status: tick.pokemon.status ?? null, hasAttacker: false });
     }
   }
 
@@ -216,7 +216,7 @@ function buildTurnAdvanceUpdate(room, entries, activeIdx, currentTurn, log, even
       if (dmgResult.damage > 0) {
         entries[side][activeIdx[side]] = dmgResult.pokemon;
         log.push(dmgResult.message);
-        events.push({ logIndex: log.length - 1, type: "hit", side, hp: dmgResult.pokemon.hp, hasAttacker: false });
+        events.push({ logIndex: log.length - 1, type: "hit", side, hp: dmgResult.pokemon.hp, status: dmgResult.pokemon.status ?? null, hasAttacker: false });
       }
     }
     if (weatherTick.expired) log.push(weatherTick.endMessage);
@@ -375,6 +375,10 @@ export function useMove(room, myKey, moveIdx) {
   currentAttacker = gate.pokemon;
   let blocked = !gate.canAct;
   if (gate.message) log.push(gate.message);
+  // 얼음이 풀리는 등 상태이상이 바뀌었으면 그 줄에서 바로 [상태] 표시를 갱신
+  if (gate.message && (gate.pokemon.status ?? null) !== (attacker.status ?? null)) {
+    events.push({ logIndex: log.length - 1, type: "status", side: myKey, status: gate.pokemon.status ?? null });
+  }
 
   if (gate.canAct && currentAttacker.volatiles?.["혼란"]) {
     const confusion = checkConfusionInterrupt(currentAttacker);
@@ -382,7 +386,7 @@ export function useMove(room, myKey, moveIdx) {
     if (confusion.message) log.push(confusion.message);
     if (confusion.confused) {
       blocked = true;
-      events.push({ logIndex: log.length - 1, type: "hit", side: myKey, hp: currentAttacker.hp, hasAttacker: false });
+      events.push({ logIndex: log.length - 1, type: "hit", side: myKey, hp: currentAttacker.hp, status: currentAttacker.status ?? null, hasAttacker: false });
     }
   }
 
@@ -444,7 +448,7 @@ export function useMove(room, myKey, moveIdx) {
           const newHp = Math.max(0, defender.hp - dmg);
 
           updatedDefender = { ...defender, hp: newHp };
-          events.push({ logIndex: moveLogIndex, type: "hit", side: oppKey, hp: newHp, hasAttacker: true });
+          events.push({ logIndex: moveLogIndex, type: "hit", side: oppKey, hp: newHp, status: defender.status ?? null, hasAttacker: true });
 
           if (isCrit && dmg > 0) log.push("급소에 맞았다!");
 
@@ -478,6 +482,10 @@ export function useMove(room, myKey, moveIdx) {
               const statusResult = applyStatus(updatedDefender, moveData.effect.status, currentTurn);
               updatedDefender = statusResult.pokemon;
               if (statusResult.message) log.push(statusResult.message);
+              // 상태이상이 걸린 그 로그 줄에서 바로 이름 옆 [상태] 표시를 갱신하도록 연출 이벤트를 남김
+              if (statusResult.applied) {
+                events.push({ logIndex: log.length - 1, type: "status", side: oppKey, status: updatedDefender.status });
+              }
             }
           } else if (moveData.effect.volatile) {
             const volName = moveData.effect.volatile;
@@ -599,7 +607,7 @@ export function switchPokemon(room, myKey, targetIdx) {
   entries[myKey][targetIdx] = hazard.pokemon;
   hazard.messages.forEach((msg) => {
     log.push(msg);
-    events.push({ logIndex: log.length - 1, type: "hit", side: myKey, hp: hazard.pokemon.hp, hasAttacker: false });
+    events.push({ logIndex: log.length - 1, type: "hit", side: myKey, hp: hazard.pokemon.hp, status: hazard.pokemon.status ?? null, hasAttacker: false });
   });
 
   const hazardFaint = handleFaintSwitch(entries, myKey, activeIdx);

@@ -320,7 +320,11 @@ function triggerBlink(prefix) {
 
 // mine/enemy 패널의 HP바/스탯/초상화를 즉시(연출 없이) 채워 넣음.
 // 슬라이드 인 연출이 필요하면 호출부에서 updatePortrait(side, pkmn, true)를 따로 호출한다.
+// 화면에 현재 표시 중인 포켓몬(연출 도중의 상태). status 연출이 이름 표시만 바꿀 때 사용.
+const shownPokemon = { mine: null, enemy: null };
+
 function applyPokemonVisual(side, pkmn, idx) {
+  shownPokemon[side] = pkmn;
   const hpText = document.getElementById(`${side}-hp`);
   const hpBar = document.getElementById(`${side}-hp-bar`);
   const stats = document.getElementById(`${side}-stats`);
@@ -464,7 +468,7 @@ const HIT_ANIM_DELAY_MS = 350; // 로그 타이핑이 끝난 뒤 shake/blink 연
 let renderedLogCount = 0; // 지금까지 큐에 반영한 로그 줄 수
 let renderedEventCount = 0; // 지금까지 큐에 반영한 연출 이벤트 수
 let boardInitialized = false; // 최초 진입/재접속 시엔 연출 없이 즉시 표시
-let boardQueue = []; // { kind: "log", text } | { kind: "hit"|"switch", side, pkmn, idx, hasAttacker? }
+let boardQueue = []; // { kind: "log", text } | { kind: "hit"|"switch", side, pkmn, idx, hasAttacker? } | { kind: "status", side, status }
 let boardBusy = false;
 
 function trimLogLines(el) {
@@ -530,6 +534,18 @@ function processBoardQueue() {
         next();
       });
     }, HIT_ANIM_DELAY_MS);
+    return;
+  }
+
+  if (step.kind === "status") {
+    // 상태이상이 걸리거나 풀린 로그 줄 직후 바로 이름 옆 [상태] 표시만 갱신
+    const stats = document.getElementById(`${step.side}-stats`);
+    const shown = shownPokemon[step.side];
+    if (stats && shown) {
+      shownPokemon[step.side] = { ...shown, status: step.status };
+      stats.innerText = formatPokemonName(shownPokemon[step.side]);
+    }
+    next();
     return;
   }
 
@@ -615,7 +631,12 @@ function renderLogAndBoard(room, isNewRound = false) {
       if (ev.type === "hit") {
         const finalPkmn = side === "mine" ? minePkmn : enemyPkmn;
         const idx = side === "mine" ? mineIdx : enemyIdx;
-        boardQueue.push({ kind: "hit", side, pkmn: { ...finalPkmn, hp: ev.hp }, idx, hasAttacker: ev.hasAttacker });
+        // 피격 시점의 상태이상(ev.status)을 써야, 뒤에 걸릴 상태이상이 미리 표시되지 않음
+        const hitPkmn = { ...finalPkmn, hp: ev.hp };
+        if ("status" in ev) hitPkmn.status = ev.status;
+        boardQueue.push({ kind: "hit", side, pkmn: hitPkmn, idx, hasAttacker: ev.hasAttacker });
+      } else if (ev.type === "status") {
+        boardQueue.push({ kind: "status", side, status: ev.status });
       } else if (ev.type === "switch") {
         const finalPkmn = side === "mine" ? minePkmn : enemyPkmn;
         boardQueue.push({ kind: "switch", side, pkmn: finalPkmn, idx: ev.idx });
