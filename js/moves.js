@@ -178,6 +178,7 @@ export const MOVES = {
   "아이스스피너":     { power: 50, type: "얼음", accuracy: 100, alwaysHit: false, effect: null },
   "얼음엄니":       { power: 40, type: "얼음", accuracy: 100, alwaysHit: false, effect: { chance: 0.1, status: "얼음" } },
   "눈싸라기":       { power: 30, type: "얼음", accuracy: 100, alwaysHit: false, effect: { chance: 0.1, status: "얼음" }, aoeEnemy: true },
+  "눈사태":         { power: 40, type: "얼음", accuracy: 100, alwaysHit: false, effect: null, avalanche: true },
   "흑안개":         { power: 0,  type: "얼음", accuracy: 100, alwaysHit: true,  effect: null, haze: true, targetSelf: true },
 
   // ───── 격투 ─────

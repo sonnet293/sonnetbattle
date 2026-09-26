@@ -440,14 +440,17 @@ export function useMove(room, myKey, moveIdx) {
         // 위력이 0인 기술(상태이상/랭크 변화 전용)은 데미지를 주지 않음
         if (moveData.power > 0) {
           // 최종 피해량 = ((위력 + 공격력x4 + 1d10) x 공격랭크보정 x 타입상성 x 자속) - (방어력x3 x 방어랭크보정)
+          // 눈사태: 이번 라운드에 상대의 공격 기술(위력>0)에 맞았으면 위력 70
+          const power = moveData.avalanche && attacker.lastHitRound === currentTurn ? 70 : moveData.power;
           const rawDamage =
-            (moveData.power + attacker.atk * 4 + rollD10()) * atkMult * typeMult * stab * weatherMult -
+            (power + attacker.atk * 4 + rollD10()) * atkMult * typeMult * stab * weatherMult -
             defender.def * 3 * defMult;
           const isCrit = rollCrit(attacker);
           const dmg = Math.max(0, Math.round(rawDamage * (isCrit ? 1.5 : 1)));
           const newHp = Math.max(0, defender.hp - dmg);
 
-          updatedDefender = { ...defender, hp: newHp };
+          // lastHitRound: 이번 라운드에 상대의 공격 기술에 맞았다는 표시 (눈사태 위력 판정용)
+          updatedDefender = { ...defender, hp: newHp, lastHitRound: currentTurn };
           events.push({ logIndex: moveLogIndex, type: "hit", side: oppKey, hp: newHp, status: defender.status ?? null, hasAttacker: true });
 
           if (isCrit && dmg > 0) log.push("급소에 맞았다!");
