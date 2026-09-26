@@ -423,7 +423,7 @@ export const MOVES = {
   "이판사판태클":{ power: 70, type: "노말", accuracy: 100, alwaysHit: false, effect: { recoil: 0.33 } },
   "웨이브태클":{ power: 70, type: "물", accuracy: 100, alwaysHit: false, effect: { recoil: 0.33 } },
   "돌진":       { power: 50, type: "노말", accuracy: 85,  alwaysHit: false, effect: { recoil: 0.25 } },
-  "보복":       { power: 50, type: "악",   accuracy: 100, alwaysHit: false, effect: null, comeback: true },
+  "보복":       { power: 50, type: "악",   accuracy: 100, alwaysHit: false, effect: null, avalanche: true },
   "마구찌르기": { power: 1,  type: "노말", accuracy: 85,  alwaysHit: false, effect: null,
                   multiHit: { min: 2, max: 5, fixedDamage: 10 } },
   "드래곤애로": { power: 1,  type: "드래곤", accuracy: 85,  alwaysHit: false, effect: null,
