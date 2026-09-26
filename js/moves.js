@@ -235,7 +235,7 @@ export const MOVES = {
   "돌떨구기":   { power: 40, type: "바위", accuracy: 90,  alwaysHit: false, effect: null },
   "바위깨기":   { power: 30, type: "바위", accuracy: 80,  alwaysHit: false, effect: null,
                   rank: { targetDef: -1, turns: 3 } },
-  "파워젬":     { power: 50, type: "바위", accuracy: 80,  alwaysHit: false, effect: null },
+  "파워젬":     { power: 50, type: "바위", accuracy: 100,  alwaysHit: false, effect: null },
   "록블라스트": { power: 40, type: "바위", accuracy: 90,  alwaysHit: false, effect: null },
   "원시의힘":   { power: 40, type: "바위", accuracy: 100, alwaysHit: false, effect: null,
                   rank: { chance: 0.1, atk: 1, def: 1, spd: 1, turns: 3 } },
