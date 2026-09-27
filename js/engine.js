@@ -136,8 +136,22 @@ function rollEvasion(attacker, defender, defenderRanks, currentTurn) {
   return Math.random() < finalEvasionPct / 100;
 }
 
-// 고스트다이브가 없애는 방어 상태 (포켓몬 필드명 + 로그용 기술명)
-const PROTECTION_MOVES = [{ flag: "spikyShield", name: "니들가드" }];
+// 연속자르기: 최대 위력과 누적 상한 (30 -> 40 -> 50)
+const FURY_CUTTER_MAX_POWER = 50;
+const FURY_CUTTER_MAX_STACK = 2;
+
+// 빛의장막/리플렉터: 지속 라운드 수, 받는 데미지 배율
+const SCREEN_TURNS = 5;
+const SCREEN_DAMAGE_MULT = 0.75;
+
+// 포켓몬에 걸려 있는 방어 상태 목록 (고스트다이브가 없앨 때 사용). flag: 포켓몬 필드명, name: 로그용 기술명
+// protect에는 사용한 기술명("방어" | "판별")이 들어 있음
+function activeProtections(pokemon) {
+  const list = [];
+  if (pokemon.protect) list.push({ flag: "protect", name: pokemon.protect });
+  if (pokemon.spikyShield) list.push({ flag: "spikyShield", name: "니들가드" });
+  return list;
+}
 
 // 상대 포켓몬에게 영향을 주는 기술인지 (데미지 / 상태이상·상태변화 / 상대 랭크 변화)
 function targetsOpponent(moveData) {
@@ -214,6 +228,15 @@ function buildTurnAdvanceUpdate(room, entries, activeIdx, currentTurn, log, even
       log.push(tick.message);
       events.push({ logIndex: log.length - 1, type: "hit", side, hp: tick.pokemon.hp, status: tick.pokemon.status ?? null, hasAttacker: false });
     }
+  }
+
+  // 빛의장막/리플렉터 만료 (날씨와 같은 방식: 사용한 라운드 + 5라운드 뒤 라운드 종료 시 해제)
+  for (const side of ["p1", "p2"]) {
+    const pkmn = entries[side][activeIdx[side]];
+    if (!pkmn?.screen || currentTurn < pkmn.screen.expireTurn) continue;
+    entries[side][activeIdx[side]] = { ...pkmn, screen: null };
+    const n = pkmn.name ?? "포켓몬";
+    log.push(`${n}의 ${pkmn.screen.name}${josa(pkmn.screen.name, "이가")} 사라졌다!`);
   }
 
   // 날씨 라운드 종료 처리: 지속 로그 -> 모래바람/싸라기눈 데미지 -> (종료라면) 종료 로그
@@ -340,7 +363,8 @@ export function initRound(room) {
   });
 }
 
-export function useMove(room, myKey, moveIdx) {
+// uTurnIdx: 유턴류 기술(uTurn)로 공격 후 교체해 들어갈 벤치 포켓몬 번호. 살아 있는 벤치가 있으면 필수.
+export function useMove(room, myKey, moveIdx, uTurnIdx = null) {
   if (room.battle_winner) return fail("이미 끝난 배틀");
   if (room.battle_turn !== myKey) return fail("내 턴이 아님");
 
@@ -370,6 +394,13 @@ export function useMove(room, myKey, moveIdx) {
   const moveData = MOVES[moveSlot.name];
   if (!moveData) return fail(`moves.js에 "${moveSlot.name}" 기술이 정의되어 있지 않음`);
 
+  // 유턴: 공격과 교체가 한 세트. 교체할 수 있는 벤치가 있으면 교체 대상을 함께 받아야 함.
+  const myBenchAlive = entries[myKey].some((p, i) => i !== activeIdx[myKey] && p && p.hp > 0);
+  if (moveData.uTurn && myBenchAlive) {
+    const t = entries[myKey][uTurnIdx];
+    if (!Number.isInteger(uTurnIdx) || uTurnIdx === activeIdx[myKey] || !t || t.hp <= 0) return fail("유턴 교체 대상이 올바르지 않음");
+  }
+
   // PP 소모
   const newMoves = [...attacker.moves];
   if (!diving) newMoves[moveIdx] = { ...moveSlot, pp: moveSlot.pp - 1 };
@@ -385,6 +416,7 @@ export function useMove(room, myKey, moveIdx) {
   const events = [...(room.battle_event_log ?? [])];
   const update = {};
   let directPendingSide = null;
+  let furyCutterHit = false; // 이번 연속자르기가 실제로 맞았는지
 
   // 기술을 고른 뒤에야 얼음/마비/혼란으로 인한 행동 저지를 판정 (버튼은 항상 활성화된 상태로 유지)
   const gate = checkActionPrevented(currentAttacker);
@@ -406,7 +438,7 @@ export function useMove(room, myKey, moveIdx) {
     }
   }
 
-  // 고스트다이브의 강제 공격(2턴째)은 상대의 방어 상태를 없애고 공격함
+  // 고스트다이브의 강제 공격(2턴째)은 상대의 방어 상태(방어/판별/니들가드)를 없애고 공격함
   const breaksProtection = !!(diving && moveData.ghostDive);
 
   // 사라진 상태는 이번 턴으로 끝 (공격하든, 얼음/마비/혼란 등으로 행동이 저지되든)
@@ -449,6 +481,35 @@ export function useMove(room, myKey, moveIdx) {
       entries[myKey][activeIdx[myKey]] = currentAttacker;
       log.push(`${attackerName}${josa(attackerName, "은는")} 가시로 몸을 지켰다!`);
     }
+  } else if (moveData.lightScreen) {
+    // 빛의장막/리플렉터: 사용한 포켓몬만 5라운드 동안 받는 데미지 25% 감소. 둘은 중첩되지 않음.
+    const attackerName = currentAttacker.name ?? "포켓몬";
+    log.push(`${attackerName}의 ${moveSlot.name}!`);
+    if (currentAttacker.screen) {
+      log.push("그러나 실패했다!");
+    } else {
+      currentAttacker = { ...currentAttacker, screen: { name: moveSlot.name, appliedTurn: currentTurn, expireTurn: currentTurn + SCREEN_TURNS } };
+      entries[myKey][activeIdx[myKey]] = currentAttacker;
+      log.push(`${attackerName}${josa(attackerName, "은는")} ${moveSlot.name}${josa(moveSlot.name, "으로")} 받는 데미지가 줄어들었다!`);
+    }
+  } else if (moveData.defend) {
+    // 방어/판별: 상대의 공격 기술(위력>0)을 한 번 막을 때까지 유지. 가시 데미지 없음.
+    const attackerName = currentAttacker.name ?? "포켓몬";
+    log.push(`${attackerName}의 ${moveSlot.name}!`);
+    if (currentAttacker.protect) {
+      log.push(`${attackerName}${josa(attackerName, "은는")} 이미 방어 태세다!`);
+    } else {
+      currentAttacker = { ...currentAttacker, protect: moveSlot.name };
+      entries[myKey][activeIdx[myKey]] = currentAttacker;
+      log.push(`${attackerName}${josa(attackerName, "은는")} 방어 태세에 들어갔다!`);
+    }
+  } else if (defender.protect && moveData.power > 0 && !breaksProtection) {
+    // 상대의 방어/판별: 공격 기술을 막고 방어 상태 소모 (변화기는 막지 않음)
+    const attackerName = currentAttacker.name ?? "포켓몬";
+    const defenderName = defender.name ?? "포켓몬";
+    log.push(`${attackerName}의 ${moveSlot.name}!`);
+    log.push(`${defenderName}${josa(defenderName, "은는")} 공격으로부터 몸을 지켰다!`);
+    entries[oppKey][activeIdx[oppKey]] = { ...defender, protect: null };
   } else if (defender.spikyShield && targetsOpponent(moveData) && !breaksProtection) {
     // 상대의 니들가드: 상대를 노리는 기술(공격기/변화기)을 막고(방패 소모), 사용한 쪽이 자기 최대 체력의 1/8 데미지
     const attackerName = currentAttacker.name ?? "포켓몬";
@@ -491,10 +552,10 @@ export function useMove(room, myKey, moveIdx) {
 
     // 고스트다이브 공격은 명중/회피와 상관없이 상대의 방어 상태(니들가드 등)를 없앰
     if (breaksProtection) {
-      const removed = PROTECTION_MOVES.filter(({ flag }) => defender[flag]);
+      const removed = activeProtections(defender);
       if (removed.length > 0) {
         defender = { ...defender };
-        for (const { flag } of removed) defender[flag] = false;
+        for (const { flag } of removed) defender[flag] = flag === "protect" ? null : false;
         entries[oppKey][activeIdx[oppKey]] = defender;
         const dn = defender.name ?? "포켓몬";
         log.push(`${dn}의 ${removed.map(({ name }) => name).join(", ")}${josa(removed[removed.length - 1].name, "이가")} 사라졌다!`);
@@ -528,12 +589,19 @@ export function useMove(room, myKey, moveIdx) {
         if (moveData.power > 0) {
           // 최종 피해량 = ((위력 + 공격력x4 + 1d10) x 공격랭크보정 x 타입상성 x 자속) - (방어력x3 x 방어랭크보정)
           // 눈사태: 이번 라운드에 상대의 공격 기술(위력>0)에 맞았으면 위력 70
-          const power = moveData.avalanche && attacker.lastHitRound === currentTurn ? 70 : moveData.power;
+          let power = moveData.power;
+          if (moveData.avalanche && attacker.lastHitRound === currentTurn) power = 70;
+          // 연속자르기: 연속으로 맞힐 때마다 +10 (30 -> 40 -> 50, 최대 50)
+          if (moveData.furyCutter) {
+            power = Math.min(FURY_CUTTER_MAX_POWER, moveData.power + 10 * (attacker.furyCutter ?? 0));
+            furyCutterHit = true;
+          }
           const rawDamage =
             (power + attacker.atk * 4 + rollD10()) * atkMult * typeMult * stab * weatherMult -
             defender.def * 3 * defMult;
           const isCrit = rollCrit(attacker);
-          const dmg = Math.max(0, Math.round(rawDamage * (isCrit ? 1.5 : 1)));
+          const screenMult = defender.screen ? SCREEN_DAMAGE_MULT : 1; // 빛의장막/리플렉터
+          const dmg = Math.max(0, Math.round(rawDamage * (isCrit ? 1.5 : 1) * screenMult));
           const newHp = Math.max(0, defender.hp - dmg);
 
           // lastHitRound: 이번 라운드에 상대의 공격 기술에 맞았다는 표시 (눈사태 위력 판정용)
@@ -634,9 +702,37 @@ export function useMove(room, myKey, moveIdx) {
     }
   }
 
+  // 연속자르기 누적: 맞히면 +1(상한까지), 빗나가거나 막히거나 다른 기술을 쓰면 0으로 초기화
+  {
+    const cur = entries[myKey][activeIdx[myKey]];
+    const nextFury = moveData.furyCutter && furyCutterHit ? Math.min((cur.furyCutter ?? 0) + 1, FURY_CUTTER_MAX_STACK) : 0;
+    if ((cur.furyCutter ?? 0) !== nextFury) entries[myKey][activeIdx[myKey]] = { ...cur, furyCutter: nextFury };
+  }
+
+  const pendingSides = new Set(directPendingSide ? [directPendingSide] : []);
+
+  // 유턴: 기술을 쓴 뒤(빗나가거나 막혀도) 곧바로 교체. 행동이 저지됐거나 내가 쓰러졌으면 교체 없음.
+  if (moveData.uTurn && !blocked && myBenchAlive && Number.isInteger(uTurnIdx) && entries[myKey][activeIdx[myKey]].hp > 0) {
+    const hazardFaint = switchIn(room, myKey, entries, activeIdx, uTurnIdx, log, events, update, true);
+    if (hazardFaint.fainted) {
+      log.push(`${hazardFaint.name}${josa(hazardFaint.name, "은는")} 쓰러졌다!`);
+      if (hazardFaint.allFainted) {
+        update.battle_winner = oppKey;
+        log.push(`${displayName(oppKey, room)} 승리!`);
+        update[`${myKey}_entry`] = entries[myKey];
+        update[`${oppKey}_entry`] = entries[oppKey];
+        update.battle_log = log;
+        update.battle_event_log = events;
+        return ok(update);
+      }
+      update[`${myKey}_pending_switch`] = true;
+      pendingSides.add(myKey);
+    }
+  }
+
   const advance = buildTurnAdvanceUpdate(
     room, entries, activeIdx, currentTurn, log, events,
-    directPendingSide ? new Set([directPendingSide]) : undefined,
+    pendingSides.size > 0 ? pendingSides : undefined,
     currentWeather
   );
   Object.assign(update, advance);
@@ -646,6 +742,42 @@ export function useMove(room, myKey, moveIdx) {
   update.battle_log = log;
   update.battle_event_log = events;
   return ok(update);
+}
+
+// 교체로 들어가는 포켓몬에게서 해제되는 상태 (방어/니들가드/빛의장막·리플렉터/연속자르기 누적)
+function clearOnSwitchOut(pokemon) {
+  return { ...pokemon, spikyShield: false, protect: null, screen: null, furyCutter: 0 };
+}
+
+// 교체 공통 처리(자발적 교체/강제 교체/유턴): 나가는 포켓몬 상태 정리 -> 내보내기 로그/연출 -> 장판 적용.
+// entries/activeIdx/log/events/update를 직접 갱신하고, 들어온 포켓몬이 장판으로 쓰러졌는지를 반환.
+function switchIn(room, myKey, entries, activeIdx, targetIdx, log, events, update, recall) {
+  const myArr = entries[myKey];
+  const prevIdx = activeIdx[myKey];
+  const prevPkmn = myArr[prevIdx];
+  if (prevPkmn) myArr[prevIdx] = clearOnSwitchOut(prevPkmn);
+  activeIdx[myKey] = targetIdx;
+
+  update[`${myKey}_active_idx`] = targetIdx;
+  update[`${myKey}_ranks`] = defaultRanks(); // 교체하면 랭크 초기화
+
+  const target = myArr[targetIdx];
+  const pName = displayName(myKey, room);
+  const dn = target.name ?? "포켓몬";
+  if (recall) log.push(`돌아와, ${prevPkmn?.name ?? "포켓몬"}!`);
+  log.push(`${pName}${josa(pName, "은는")} ${dn}${josa(dn, "을를")} 내보냈다!`);
+  events.push({ logIndex: log.length - 1, type: "switch", side: myKey, idx: targetIdx });
+
+  // 장판(스텔스록/독압정) 효과 적용
+  const myField = room[`${myKey}_field`] ?? defaultField();
+  const hazard = applyHazardsOnSwitchIn(target, myField, room.round_no ?? 1);
+  myArr[targetIdx] = hazard.pokemon;
+  hazard.messages.forEach((msg) => {
+    log.push(msg);
+    events.push({ logIndex: log.length - 1, type: "hit", side: myKey, hp: hazard.pokemon.hp, status: hazard.pokemon.status ?? null, hasAttacker: false });
+  });
+
+  return handleFaintSwitch(entries, myKey, activeIdx);
 }
 
 // 벤치 포켓몬 교체.
@@ -670,40 +802,13 @@ export function switchPokemon(room, myKey, targetIdx) {
   if (!pendingSwitch && targetIdx === activeIdx[myKey]) return fail("이미 출전 중"); // 이미 나가 있는 포켓몬
   if (!pendingSwitch && myArr[activeIdx[myKey]]?.ghostDive) return fail("고스트다이브 중에는 교체 불가");
 
-  const prevPkmn = myArr[activeIdx[myKey]];
-  // 들어가는 포켓몬의 니들가드는 해제
-  if (prevPkmn?.spikyShield) myArr[activeIdx[myKey]] = { ...prevPkmn, spikyShield: false };
-  activeIdx[myKey] = targetIdx;
-
   const update = {};
   const log = [...(room.battle_log ?? [])];
   const events = [...(room.battle_event_log ?? [])];
 
-  update[`${myKey}_active_idx`] = targetIdx;
-  update[`${myKey}_ranks`] = defaultRanks(); // 교체하면 랭크 초기화
-
-  const myField = room[`${myKey}_field`] ?? defaultField();
-  const pName = displayName(myKey, room);
-  const dn = target.name ?? "포켓몬";
-
-  if (pendingSwitch) {
-    update[`${myKey}_pending_switch`] = false;
-  } else {
-    // 자발적 교체는 내 턴(액션)을 소모함
-    log.push(`돌아와, ${prevPkmn?.name ?? "포켓몬"}!`);
-  }
-  log.push(`${pName}${josa(pName, "은는")} ${dn}${josa(dn, "을를")} 내보냈다!`);
-  events.push({ logIndex: log.length - 1, type: "switch", side: myKey, idx: targetIdx });
-
-  // 장판(스텔스록/독압정) 효과 적용
-  const hazard = applyHazardsOnSwitchIn(target, myField, room.round_no ?? 1);
-  entries[myKey][targetIdx] = hazard.pokemon;
-  hazard.messages.forEach((msg) => {
-    log.push(msg);
-    events.push({ logIndex: log.length - 1, type: "hit", side: myKey, hp: hazard.pokemon.hp, status: hazard.pokemon.status ?? null, hasAttacker: false });
-  });
-
-  const hazardFaint = handleFaintSwitch(entries, myKey, activeIdx);
+  // 자발적 교체는 내 턴(액션)을 소모함 ("돌아와" 로그). 강제 교체는 턴 소모 없음.
+  if (pendingSwitch) update[`${myKey}_pending_switch`] = false;
+  const hazardFaint = switchIn(room, myKey, entries, activeIdx, targetIdx, log, events, update, !pendingSwitch);
   if (hazardFaint.fainted) {
     log.push(`${hazardFaint.name}${josa(hazardFaint.name, "은는")} 쓰러졌다!`);
     if (hazardFaint.allFainted) {

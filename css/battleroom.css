@@ -294,6 +294,12 @@ body {
     transform: scale(1.05);
 }
 
+/* 유턴류 기술을 눌러 교체 대상을 고르는 중 */
+.move-btn.uturn-picking {
+    outline: 3px solid #fff;
+    outline-offset: 2px;
+}
+
 .move-btn:not(:disabled):active {
     filter: brightness(0.9);
     transform: scale(0.97);

@@ -287,6 +287,7 @@ export const MOVES = {
   "벌레먹음":   { power: 40, type: "벌레", accuracy: 100, alwaysHit: false, effect: null },
   "흡혈":       { power: 50, type: "벌레", accuracy: 100, alwaysHit: false, effect: { drain: 0.15 } },
   "꽃가루경단": { power: 50, type: "벌레", accuracy: 100, alwaysHit: false, effect: null, pollenPuff: true },
+  "연속자르기": { power: 30, type: "벌레", accuracy: 95,  alwaysHit: false, effect: null, furyCutter: true },
   "유턴":       { power: 40, type: "벌레", accuracy: 100, alwaysHit: false, effect: null, uTurn: true },
   "시그널빔":   { power: 45, type: "벌레", accuracy: 100, alwaysHit: false,
                   effect: { chance: 0.1, volatile: "혼란" } },

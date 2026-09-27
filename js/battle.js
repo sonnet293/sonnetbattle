@@ -211,9 +211,14 @@ async function maybeInitRound(room) {
   await sendAction("init");
 }
 
-function useMove(moveIdx) {
-  return requestTurnAction("move", { moveIdx });
+// switchIdx: 유턴류 기술로 공격 후 교체해 들어갈 벤치 번호 (공격+교체를 한 요청으로 보냄)
+function useMove(moveIdx, switchIdx = null) {
+  uTurnPick = null;
+  return requestTurnAction("move", switchIdx === null ? { moveIdx } : { moveIdx, switchIdx });
 }
+
+// 유턴류 기술 버튼을 누른 뒤 교체할 벤치를 고르는 중이면 그 기술 번호, 아니면 null
+let uTurnPick = null;
 
 // 벤치 포켓몬 교체 요청. 강제/자발적 교체 구분과 턴 소모는 GM(engine.switchPokemon)이 판단한다.
 function switchPokemon(targetIdx) {
@@ -261,7 +266,9 @@ function renderBoard(room, isNewRound = false) {
 }
 
 function renderTurnUI(room) {
+  if (room.battle_turn !== slotKey(mySlot) || room.battle_winner) uTurnPick = null; // 내 턴이 끝나면 유턴 선택 취소
   renderTurn(room);
+  if (uTurnPick !== null) document.getElementById("turn-indicator").innerText = "유턴 후 교체할 포켓몬을 선택!";
   renderMoveButtons(room);
   renderBench(room);
 }
@@ -377,6 +384,7 @@ function renderMoveButtons(room) {
     const usable = diving ? canAct && diving.moveIdx === i : canAct && (move.pp ?? 0) > 0;
 
     const moveData = MOVES[move.name];
+    btn.classList.toggle("uturn-picking", uTurnPick === i);
     btn.style.display = "inline-flex";
     btn.style.backgroundColor = TYPE_COLORS[moveData?.type] ?? "var(--accent)";
     btn.style.opacity = usable ? "1" : "0.45";
@@ -385,6 +393,14 @@ function renderMoveButtons(room) {
     btn.disabled = !usable;
     btn.onclick = () => {
       playButtonSound();
+      // 유턴류 기술: 교체할 수 있는 벤치가 있으면 먼저 교체 대상을 고르게 함 (같은 버튼을 다시 누르면 취소)
+      const canPivot = moveData?.uTurn && !diving &&
+        (myPkmn.hp > 0) && room[`${myKey}_entry`].some((p, idx) => idx !== activeIdx && p && p.hp > 0);
+      if (canPivot) {
+        uTurnPick = uTurnPick === i ? null : i;
+        renderTurnUI(room);
+        return;
+      }
       useMove(i);
     };
   }
@@ -409,6 +425,7 @@ function renderBenchSide(dataKey, uiKey, room) {
   const anyonePending = !!room.p1_pending_switch || !!room.p2_pending_switch;
 
   const canForcedSwitch = myKey === dataKey && pendingSwitch;
+  const canUTurnSwitch = myKey === dataKey && uTurnPick !== null && !isAnimating && !actionInFlight;
   const canVoluntarySwitch =
     myKey === dataKey &&
     !pendingSwitch &&
@@ -432,7 +449,7 @@ function renderBenchSide(dataKey, uiKey, room) {
     if (isActive) return; // 이미 출전 중인 포켓몬은 벤치에 버튼을 표시하지 않음
 
     const isFainted = pkmn.hp <= 0;
-    const usable = (canForcedSwitch || canVoluntarySwitch) && !isFainted;
+    const usable = (canForcedSwitch || canVoluntarySwitch || canUTurnSwitch) && !isFainted;
 
     const btn = document.createElement("button");
     btn.type = "button";
@@ -452,7 +469,8 @@ function renderBenchSide(dataKey, uiKey, room) {
 
     btn.onclick = () => {
       playButtonSound();
-      switchPokemon(idx);
+      if (uTurnPick !== null) useMove(uTurnPick, idx);
+      else switchPokemon(idx);
     };
     container.appendChild(btn);
   });
