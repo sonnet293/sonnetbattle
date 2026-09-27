@@ -432,6 +432,46 @@ export function useMove(room, myKey, moveIdx) {
     log.push(`${attackerName}${josa(attackerName, "은는")} 어디론가 사라졌다!`);
     currentAttacker = { ...currentAttacker, ghostDive: { moveIdx } };
     entries[myKey][activeIdx[myKey]] = currentAttacker;
+  } else if (moveData.spikyShield) {
+    // 니들가드: 가시 방패를 세움. 상대를 노리는 기술을 한 번 막을 때까지 유지.
+    const attackerName = currentAttacker.name ?? "포켓몬";
+    log.push(`${attackerName}의 ${moveSlot.name}!`);
+    if (currentAttacker.spikyShield) {
+      log.push(`${attackerName}${josa(attackerName, "은는")} 이미 가시로 몸을 지키고 있다!`);
+    } else {
+      currentAttacker = { ...currentAttacker, spikyShield: true };
+      entries[myKey][activeIdx[myKey]] = currentAttacker;
+      log.push(`${attackerName}${josa(attackerName, "은는")} 가시로 몸을 지켰다!`);
+    }
+  } else if (defender.spikyShield && targetsOpponent(moveData)) {
+    // 상대의 니들가드: 상대를 노리는 기술(공격기/변화기)을 막고(방패 소모), 사용한 쪽이 자기 최대 체력의 1/8 데미지
+    const attackerName = currentAttacker.name ?? "포켓몬";
+    const defenderName = defender.name ?? "포켓몬";
+    log.push(`${attackerName}의 ${moveSlot.name}!`);
+    log.push(`${defenderName}${josa(defenderName, "은는")} 몸을 지켰다!`);
+    entries[oppKey][activeIdx[oppKey]] = { ...defender, spikyShield: false };
+
+    const spikeDmg = Math.max(1, Math.floor((currentAttacker.maxHp ?? currentAttacker.hp) / 8));
+    currentAttacker = { ...currentAttacker, hp: Math.max(0, currentAttacker.hp - spikeDmg) };
+    entries[myKey][activeIdx[myKey]] = currentAttacker;
+    log.push(`${attackerName}${josa(attackerName, "은는")} 가시에 찔려 데미지를 입었다!`);
+    events.push({ logIndex: log.length - 1, type: "hit", side: myKey, hp: currentAttacker.hp, status: currentAttacker.status ?? null, hasAttacker: false });
+
+    const faint = handleFaintSwitch(entries, myKey, activeIdx);
+    if (faint.fainted) {
+      log.push(`${faint.name}${josa(faint.name, "은는")} 쓰러졌다!`);
+      if (faint.allFainted) {
+        update.battle_winner = oppKey;
+        log.push(`${displayName(oppKey, room)} 승리!`);
+        update[`${myKey}_entry`] = entries[myKey];
+        update[`${oppKey}_entry`] = entries[oppKey];
+        update.battle_log = log;
+        update.battle_event_log = events;
+        return ok(update);
+      }
+      update[`${myKey}_pending_switch`] = true;
+      directPendingSide = myKey;
+    }
   } else if (defender.ghostDive && targetsOpponent(moveData)) {
     // 상대가 고스트다이브로 사라져 있으면 상대를 노리는 기술은 반드시 빗나감
     const attackerName = currentAttacker.name ?? "포켓몬";
@@ -613,6 +653,8 @@ export function switchPokemon(room, myKey, targetIdx) {
   if (!pendingSwitch && myArr[activeIdx[myKey]]?.ghostDive) return fail("고스트다이브 중에는 교체 불가");
 
   const prevPkmn = myArr[activeIdx[myKey]];
+  // 들어가는 포켓몬의 니들가드는 해제
+  if (prevPkmn?.spikyShield) myArr[activeIdx[myKey]] = { ...prevPkmn, spikyShield: false };
   activeIdx[myKey] = targetIdx;
 
   const update = {};

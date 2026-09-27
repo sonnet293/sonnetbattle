@@ -140,6 +140,7 @@ export const MOVES = {
   "일렉트릭네트": { power: 40, type: "전기", accuracy: 95,  alwaysHit: false, targetSelf: false, effect: null,
                     rank: { targetSpd: -1, turns: 3 }, aoeEnemy: true },
   "볼트체인지":   { power: 40, type: "전기", accuracy: 100, alwaysHit: false, effect: null, uTurn: true },
+  "찌리리따끔따끔":   { power: 50, type: "노말", accuracy: 100, alwaysHit: false, effect: { chance: 0.3, volatile: "풀죽음" } },
 
   // ───── 풀 ─────
   "에너지볼":       { power: 40, type: "풀", accuracy: 100, alwaysHit: false, effect: null,
@@ -162,6 +163,7 @@ export const MOVES = {
                       effect: { chance: 1, status: "마비" }, poisonPowder: true },
   "꽃잎댄스":       { power: 60, type: "풀", accuracy: 100, alwaysHit: false, effect: null,
                       outrage: { confusion: true, minTurn: 2, maxTurn: 3, powers: [60, 45, 30] } },
+  "니들가드":       { power: 0,  type: "풀", accuracy: 100, alwaysHit: true,  targetSelf: true, effect: null, spikyShield: true },
   "리프블레이드":   { power: 50, type: "풀", accuracy: 100, alwaysHit: false, effect: null, highCrit: true },
   "우드혼":         { power: 45, type: "풀", accuracy: 100, alwaysHit: false, effect: { drain: 0.15 } },
   "사과산":         { power: 50, type: "풀", accuracy: 100, alwaysHit: false, effect: null,
