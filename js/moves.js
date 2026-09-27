@@ -140,7 +140,7 @@ export const MOVES = {
   "일렉트릭네트": { power: 40, type: "전기", accuracy: 95,  alwaysHit: false, targetSelf: false, effect: null,
                     rank: { targetSpd: -1, turns: 3 }, aoeEnemy: true },
   "볼트체인지":   { power: 40, type: "전기", accuracy: 100, alwaysHit: false, effect: null, uTurn: true },
-  "찌리리따끔따끔":   { power: 50, type: "노말", accuracy: 100, alwaysHit: false, effect: { chance: 0.3, volatile: "풀죽음" } },
+  "찌리리따끔따끔":   { power: 50, type: "전기", accuracy: 100, alwaysHit: false, effect: { chance: 0.3, volatile: "풀죽음" } },
 
   // ───── 풀 ─────
   "에너지볼":       { power: 40, type: "풀", accuracy: 100, alwaysHit: false, effect: null,
