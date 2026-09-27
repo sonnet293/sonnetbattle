@@ -154,6 +154,12 @@ function activeGuard(pokemon, currentTurn) {
   return guard && currentTurn <= guard.expireTurn ? guard : null;
 }
 
+// 거대해머류로 이번 라운드에 잠긴 기술인지. moveLock: { name: 기술명, turn: 사용 불가 라운드 }
+export function isMoveLocked(pokemon, moveName, currentTurn) {
+  const lock = pokemon?.moveLock;
+  return !!lock && lock.name === moveName && lock.turn === currentTurn;
+}
+
 // 상대 포켓몬에게 영향을 주는 기술인지 (데미지 / 상태이상·상태변화 / 상대 랭크 변화)
 function targetsOpponent(moveData) {
   if (moveData.power > 0) return true;
@@ -406,6 +412,9 @@ export function useMove(room, myKey, moveIdx, uTurnIdx = null) {
   const moveData = MOVES[moveSlot.name];
   if (!moveData) return fail(`moves.js에 "${moveSlot.name}" 기술이 정의되어 있지 않음`);
 
+  // 거대해머류(heavyHammer): 사용한 다음 라운드에는 같은 기술을 쓸 수 없음
+  if (!diving && isMoveLocked(attacker, moveSlot.name, currentTurn)) return fail(`${moveSlot.name}은(는) 이번 라운드에 사용할 수 없음`);
+
   // 유턴: 공격과 교체가 한 세트. 교체할 수 있는 벤치가 있으면 교체 대상을 함께 받아야 함.
   const myBenchAlive = entries[myKey].some((p, i) => i !== activeIdx[myKey] && p && p.hp > 0);
   if (moveData.uTurn && myBenchAlive) {
@@ -620,6 +629,18 @@ export function useMove(room, myKey, moveIdx, uTurnIdx = null) {
           if (typeMult === 0) log.push(`${defenderName}에게는 효과가 없는 듯하다...`);
           else if (typeMult > 1) log.push("효과가 굉장했다!");
           else if (typeMult < 1) log.push("효과가 별로인 듯하다...");
+
+          // 흡수기(effect.drain): 가한 데미지의 drain 비율만큼 회복 (최대 체력까지)
+          if (moveData.effect?.drain && dmg > 0) {
+            const maxHp = currentAttacker.maxHp ?? currentAttacker.hp;
+            const heal = Math.min(maxHp - currentAttacker.hp, Math.max(1, Math.round(dmg * moveData.effect.drain)));
+            if (heal > 0) {
+              currentAttacker = { ...currentAttacker, hp: currentAttacker.hp + heal };
+              entries[myKey][activeIdx[myKey]] = currentAttacker;
+              log.push(`${defenderName}의 체력을 흡수했다!`);
+              events.push({ logIndex: log.length - 1, type: "heal", side: myKey, hp: currentAttacker.hp });
+            }
+          }
         }
 
         // 장판(스텔스록/독압정) 설치. 설치 당시엔 데미지/효과 없이 상대 진영에 표시만 해둠.
@@ -718,6 +739,12 @@ export function useMove(room, myKey, moveIdx, uTurnIdx = null) {
     if ((cur.furyCutter ?? 0) !== nextFury || !!cur.guardStreak !== guardSucceeded) {
       entries[myKey][activeIdx[myKey]] = { ...cur, furyCutter: nextFury, guardStreak: guardSucceeded };
     }
+  }
+
+  // 거대해머류: 실제로 기술을 썼으면(빗나가거나 막혀도) 다음 라운드엔 사용 불가
+  if (moveData.heavyHammer && !blocked) {
+    const cur = entries[myKey][activeIdx[myKey]];
+    entries[myKey][activeIdx[myKey]] = { ...cur, moveLock: { name: moveSlot.name, turn: currentTurn + 1 } };
   }
 
   const pendingSides = new Set(directPendingSide ? [directPendingSide] : []);

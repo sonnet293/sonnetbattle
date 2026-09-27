@@ -13,7 +13,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { MOVES } from "./moves.js";
 import { formatPokemonName } from "./effecthandler.js";
-import { displayName } from "./engine.js";
+import { displayName, isMoveLocked } from "./engine.js";
 
 const roomRef = doc(db, "rooms", ROOM_ID);
 const actionsRef = collection(roomRef, "actions");
@@ -381,7 +381,8 @@ function renderMoveButtons(room) {
       !actionInFlight;
     // 고스트다이브로 사라진 상태면 그 기술만 누를 수 있음 (다음 턴 강제 공격, PP는 이미 소모됨)
     const diving = myPkmn.ghostDive;
-    const usable = diving ? canAct && diving.moveIdx === i : canAct && (move.pp ?? 0) > 0;
+    const locked = isMoveLocked(myPkmn, move.name, room.round_no ?? 0); // 거대해머: 사용 다음 라운드엔 잠김
+    const usable = diving ? canAct && diving.moveIdx === i : canAct && (move.pp ?? 0) > 0 && !locked;
 
     const moveData = MOVES[move.name];
     btn.classList.toggle("uturn-picking", uTurnPick === i);
@@ -489,7 +490,7 @@ const HIT_ANIM_DELAY_MS = 350; // 로그 타이핑이 끝난 뒤 shake/blink 연
 let renderedLogCount = 0; // 지금까지 큐에 반영한 로그 줄 수
 let renderedEventCount = 0; // 지금까지 큐에 반영한 연출 이벤트 수
 let boardInitialized = false; // 최초 진입/재접속 시엔 연출 없이 즉시 표시
-let boardQueue = []; // { kind: "log", text } | { kind: "hit"|"switch", side, pkmn, idx, hasAttacker? } | { kind: "status", side, status }
+let boardQueue = []; // { kind: "log", text } | { kind: "hit"|"switch", side, pkmn, idx, hasAttacker? } | { kind: "status", side, status } | { kind: "heal", side, hp }
 let boardBusy = false;
 
 function trimLogLines(el) {
@@ -555,6 +556,14 @@ function processBoardQueue() {
         next();
       });
     }, HIT_ANIM_DELAY_MS);
+    return;
+  }
+
+  if (step.kind === "heal") {
+    // 흡수 회복: 연출 없이 HP바만 갱신
+    const shown = shownPokemon[step.side];
+    if (shown) applyPokemonVisual(step.side, { ...shown, hp: step.hp });
+    next();
     return;
   }
 
@@ -656,6 +665,8 @@ function renderLogAndBoard(room, isNewRound = false) {
         const hitPkmn = { ...finalPkmn, hp: ev.hp };
         if ("status" in ev) hitPkmn.status = ev.status;
         boardQueue.push({ kind: "hit", side, pkmn: hitPkmn, idx, hasAttacker: ev.hasAttacker });
+      } else if (ev.type === "heal") {
+        boardQueue.push({ kind: "heal", side, hp: ev.hp });
       } else if (ev.type === "status") {
         boardQueue.push({ kind: "status", side, status: ev.status });
       } else if (ev.type === "switch") {
