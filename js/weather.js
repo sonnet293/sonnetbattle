@@ -7,6 +7,7 @@
 // 그 다음 라운드부터 지속 로그/데미지가 들어가며 currentTurn > expireTurn이 되면 종료된다.
 
 import { josa } from "./effecthandler.js";
+import { pokemonTypes } from "./typeChart.js";
 
 export const WEATHER_LIST = ["쾌청", "비", "모래바람", "싸라기눈"];
 
@@ -32,7 +33,7 @@ const END_MESSAGE = {
 };
 
 function hasType(pokemon, typeName) {
-  return Array.isArray(pokemon?.types) && pokemon.types.includes(typeName);
+  return pokemonTypes(pokemon).includes(typeName);
 }
 
 // 날씨 기술 사용 시 필드 날씨를 새로 설치(기존 날씨가 있어도 덮어씀).

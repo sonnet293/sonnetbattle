@@ -3,7 +3,7 @@
 // GM 브라우저(gm/gm.js)만 이 파일로 판정하고, 플레이어 브라우저는 요청(actions)만 생성한다.
 // 모든 함수는 room 스냅샷을 받아 { ok: true, update } 또는 { ok: false, reason }을 돌려준다.
 import { MOVES } from "./moves.js";
-import { getTypeMultiplier } from "./typeChart.js";
+import { getTypeMultiplier, pokemonTypes } from "./typeChart.js";
 import {
   applyStatus,
   applyVolatile,
@@ -579,8 +579,8 @@ export function useMove(room, myKey, moveIdx, uTurnIdx = null) {
         const sandDefBonus = sandstormDefenseBonus(defender, currentWeather?.type);
         const defMult = rankMultiplier(clampRank(getEffectiveRank(oppRanks, "def", currentTurn) + sandDefBonus));
 
-        const typeMult = getDefenderTypeMultiplier(moveData.type, defender.types);
-        const stab = hasStab(attacker.types, moveData.type) ? 1.3 : 1;
+        const typeMult = getDefenderTypeMultiplier(moveData.type, pokemonTypes(defender));
+        const stab = hasStab(pokemonTypes(attacker), moveData.type) ? 1.3 : 1;
         const weatherMult = weatherPowerMultiplier(currentWeather?.type, moveData.type);
 
         let updatedDefender = { ...defender };

@@ -6,7 +6,8 @@
 //   statusData: 상태별 부가 정보 (예: 얼음의 freezeTurn)
 //   volatiles: { [상태변화이름]: 부가정보 } (예: { "혼란": { duration, turnCount }, "풀죽음": {} })
 //     상태변화끼리는 서로 다른 종류면 동시에 걸릴 수 있음(중첩 가능). 같은 종류는 중복 적용 불가.
-//   types: array (예: ["독", "땅"]) - 면역 체크용
+//   type: array (예: ["독", "땅"]) - 면역 체크용 (pokemonTypes로 읽음)
+import { pokemonTypes } from "./typeChart.js";
 
 export const STATUS_LIST = ["독", "화상", "얼음", "마비"];
 export const VOLATILE_LIST = ["혼란", "풀죽음"];
@@ -28,7 +29,7 @@ export function josa(word, type) {
 }
 
 function hasType(pokemon, typeName) {
-  return Array.isArray(pokemon.types) && pokemon.types.includes(typeName);
+  return pokemonTypes(pokemon).includes(typeName);
 }
 
 // 상태이상별 면역 체크

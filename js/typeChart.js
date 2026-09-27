@@ -23,6 +23,14 @@ const TYPE_CHART = {
   페어리: { 격투: 1.2, 드래곤: 1.2, 악: 1.2, 불: 0.8, 독: 0.8, 강철: 0.8 },
 }
 
+// 포켓몬의 타입 배열. users 문서의 엔트리는 `type: ["풀", "고스트"]`로 저장되어 있음
+// (`types` 필드나 단일 문자열도 허용)
+export function pokemonTypes(pokemon) {
+    const t = pokemon?.type ?? pokemon?.types;
+    if (Array.isArray(t)) return t;
+    return typeof t === "string" ? [t] : [];
+}
+
 // 기술 타입 vs 방어 포켓몬 타입 → 배수 반환
 // 1.2(약점) / 0.8(저항) / 0(무효) / 1(통상)
 export function getTypeMultiplier(moveType, defenderType) {
