@@ -136,6 +136,9 @@ function rollEvasion(attacker, defender, defenderRanks, currentTurn) {
   return Math.random() < finalEvasionPct / 100;
 }
 
+// 고스트다이브가 없애는 방어 상태 (포켓몬 필드명 + 로그용 기술명)
+const PROTECTION_MOVES = [{ flag: "spikyShield", name: "니들가드" }];
+
 // 상대 포켓몬에게 영향을 주는 기술인지 (데미지 / 상태이상·상태변화 / 상대 랭크 변화)
 function targetsOpponent(moveData) {
   if (moveData.power > 0) return true;
@@ -353,7 +356,7 @@ export function useMove(room, myKey, moveIdx) {
   const currentTurn = room.round_no ?? 1;
 
   const attacker = entries[myKey][activeIdx[myKey]];
-  const defender = entries[oppKey][activeIdx[oppKey]];
+  let defender = entries[oppKey][activeIdx[oppKey]];
   if (!attacker || !defender) return fail("포켓몬 없음");
 
   // 고스트다이브로 사라진 상태면 어떤 버튼을 눌렀든 그 기술로 강제 공격 (PP는 사라질 때 이미 소모)
@@ -403,6 +406,9 @@ export function useMove(room, myKey, moveIdx) {
     }
   }
 
+  // 고스트다이브의 강제 공격(2턴째)은 상대의 방어 상태를 없애고 공격함
+  const breaksProtection = !!(diving && moveData.ghostDive);
+
   // 사라진 상태는 이번 턴으로 끝 (공격하든, 얼음/마비/혼란 등으로 행동이 저지되든)
   if (diving) currentAttacker = { ...currentAttacker, ghostDive: null };
 
@@ -443,7 +449,7 @@ export function useMove(room, myKey, moveIdx) {
       entries[myKey][activeIdx[myKey]] = currentAttacker;
       log.push(`${attackerName}${josa(attackerName, "은는")} 가시로 몸을 지켰다!`);
     }
-  } else if (defender.spikyShield && targetsOpponent(moveData)) {
+  } else if (defender.spikyShield && targetsOpponent(moveData) && !breaksProtection) {
     // 상대의 니들가드: 상대를 노리는 기술(공격기/변화기)을 막고(방패 소모), 사용한 쪽이 자기 최대 체력의 1/8 데미지
     const attackerName = currentAttacker.name ?? "포켓몬";
     const defenderName = defender.name ?? "포켓몬";
@@ -483,6 +489,18 @@ export function useMove(room, myKey, moveIdx) {
     log.push(`${attackerName}의 ${moveSlot.name}!`);
     const moveLogIndex = log.length - 1;
 
+    // 고스트다이브 공격은 명중/회피와 상관없이 상대의 방어 상태(니들가드 등)를 없앰
+    if (breaksProtection) {
+      const removed = PROTECTION_MOVES.filter(({ flag }) => defender[flag]);
+      if (removed.length > 0) {
+        defender = { ...defender };
+        for (const { flag } of removed) defender[flag] = false;
+        entries[oppKey][activeIdx[oppKey]] = defender;
+        const dn = defender.name ?? "포켓몬";
+        log.push(`${dn}의 ${removed.map(({ name }) => name).join(", ")}${josa(removed[removed.length - 1].name, "이가")} 사라졌다!`);
+      }
+    }
+
     const accuracyHit = rollAccuracy(moveData);
 
     if (!accuracyHit) {
@@ -519,7 +537,7 @@ export function useMove(room, myKey, moveIdx) {
           const newHp = Math.max(0, defender.hp - dmg);
 
           // lastHitRound: 이번 라운드에 상대의 공격 기술에 맞았다는 표시 (눈사태 위력 판정용)
-          updatedDefender = { ...defender, hp: newHp, lastHitRound: currentTurn };
+          updatedDefender = { ...updatedDefender, hp: newHp, lastHitRound: currentTurn };
           events.push({ logIndex: moveLogIndex, type: "hit", side: oppKey, hp: newHp, status: defender.status ?? null, hasAttacker: true });
 
           if (isCrit && dmg > 0) log.push("급소에 맞았다!");
