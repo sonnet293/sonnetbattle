@@ -462,7 +462,7 @@ export const MOVES = {
                   targetSelf: false, aoeEnemy: true },
 "메테오빔":     { power: 70, type: "바위", accuracy: 90, alwaysHit: false, effect: null, meteorBeam: true },
 "마지막일침":   { power: 40, type: "벌레", accuracy: 100, alwaysHit: false, effect: null, lastSting: true },
-"거대해머":     { power: 75, type: "강철", accuracy: 100, alwaysHit: false, effect: null, heavyHammer: true },
+"거대해머":     { power: 70, type: "강철", accuracy: 100, alwaysHit: false, effect: null, heavyHammer: true },
 "다이빙": { power: 50, type: "물", accuracy: 100, alwaysHit: false, effect: null, dive: true },
 "예민해지기": { power: 0, type: "노말", accuracy: 100, alwaysHit: true, effect: null, focusEnergy: true, targetSelf: true },
 }
