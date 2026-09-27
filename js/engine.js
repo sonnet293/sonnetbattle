@@ -144,13 +144,14 @@ const FURY_CUTTER_MAX_STACK = 2;
 const SCREEN_TURNS = 5;
 const SCREEN_DAMAGE_MULT = 0.75;
 
-// 포켓몬에 걸려 있는 방어 상태 목록 (고스트다이브가 없앨 때 사용). flag: 포켓몬 필드명, name: 로그용 기술명
-// protect에는 사용한 기술명("방어" | "판별")이 들어 있음
-function activeProtections(pokemon) {
-  const list = [];
-  if (pokemon.protect) list.push({ flag: "protect", name: pokemon.protect });
-  if (pokemon.spikyShield) list.push({ flag: "spikyShield", name: "니들가드" });
-  return list;
+// 방어류(방어/판별/니들가드): 사용한 라운드 포함 2라운드 유지, 직전 행동도 방어류 성공이었으면 성공률 45%
+const GUARD_TURNS = 2;
+const GUARD_REPEAT_CHANCE = 0.33;
+
+// 포켓몬에 걸려 있는 방어류 상태. guard: { name: 기술명, spiky: 니들가드 여부, expireTurn } | null
+function activeGuard(pokemon, currentTurn) {
+  const guard = pokemon?.guard;
+  return guard && currentTurn <= guard.expireTurn ? guard : null;
 }
 
 // 상대 포켓몬에게 영향을 주는 기술인지 (데미지 / 상태이상·상태변화 / 상대 랭크 변화)
@@ -227,6 +228,17 @@ function buildTurnAdvanceUpdate(room, entries, activeIdx, currentTurn, log, even
       entries[side][activeIdx[side]] = tick.pokemon;
       log.push(tick.message);
       events.push({ logIndex: log.length - 1, type: "hit", side, hp: tick.pokemon.hp, status: tick.pokemon.status ?? null, hasAttacker: false });
+    }
+  }
+
+  // 방어류 만료: 피격되지 않았으면 사용한 라운드 포함 2라운드째 종료 시 해제
+  for (const side of ["p1", "p2"]) {
+    const pkmn = entries[side][activeIdx[side]];
+    if (!pkmn?.guard || currentTurn < pkmn.guard.expireTurn) continue;
+    entries[side][activeIdx[side]] = { ...pkmn, guard: null };
+    if (currentTurn === pkmn.guard.expireTurn) {
+      const n = pkmn.name ?? "포켓몬";
+      log.push(`${n}의 ${pkmn.guard.name}${josa(pkmn.guard.name, "이가")} 풀렸다!`);
     }
   }
 
@@ -417,6 +429,8 @@ export function useMove(room, myKey, moveIdx, uTurnIdx = null) {
   const update = {};
   let directPendingSide = null;
   let furyCutterHit = false; // 이번 연속자르기가 실제로 맞았는지
+  let guardSucceeded = false; // 이번에 방어류 기술이 성공했는지 (연속 사용 판정용)
+  const defGuard = activeGuard(defender, currentTurn);
 
   // 기술을 고른 뒤에야 얼음/마비/혼란으로 인한 행동 저지를 판정 (버튼은 항상 활성화된 상태로 유지)
   const gate = checkActionPrevented(currentAttacker);
@@ -470,16 +484,22 @@ export function useMove(room, myKey, moveIdx, uTurnIdx = null) {
     log.push(`${attackerName}${josa(attackerName, "은는")} 어디론가 사라졌다!`);
     currentAttacker = { ...currentAttacker, ghostDive: { moveIdx } };
     entries[myKey][activeIdx[myKey]] = currentAttacker;
-  } else if (moveData.spikyShield) {
-    // 니들가드: 가시 방패를 세움. 상대를 노리는 기술을 한 번 막을 때까지 유지.
+  } else if (moveData.spikyShield || moveData.defend) {
+    // 방어류(니들가드/방어/판별): 한 번 막거나 2라운드가 지날 때까지 유지.
+    // 직전 행동도 방어류 성공이었으면 45% 확률로만 성공. 성공하면 기존 방어류 상태를 새것으로 교체.
     const attackerName = currentAttacker.name ?? "포켓몬";
     log.push(`${attackerName}의 ${moveSlot.name}!`);
-    if (currentAttacker.spikyShield) {
-      log.push(`${attackerName}${josa(attackerName, "은는")} 이미 가시로 몸을 지키고 있다!`);
-    } else {
-      currentAttacker = { ...currentAttacker, spikyShield: true };
+    const chance = currentAttacker.guardStreak ? GUARD_REPEAT_CHANCE : 1;
+    if (Math.random() < chance) {
+      const spiky = !!moveData.spikyShield;
+      currentAttacker = { ...currentAttacker, guard: { name: moveSlot.name, spiky, expireTurn: currentTurn + GUARD_TURNS - 1 } };
       entries[myKey][activeIdx[myKey]] = currentAttacker;
-      log.push(`${attackerName}${josa(attackerName, "은는")} 가시로 몸을 지켰다!`);
+      guardSucceeded = true;
+      log.push(spiky
+        ? `${attackerName}${josa(attackerName, "은는")} 가시로 몸을 지켰다!`
+        : `${attackerName}${josa(attackerName, "은는")} 방어 태세에 들어갔다!`);
+    } else {
+      log.push("그러나 실패했다!");
     }
   } else if (moveData.lightScreen) {
     // 빛의장막/리플렉터: 사용한 포켓몬만 5라운드 동안 받는 데미지 25% 감소. 둘은 중첩되지 않음.
@@ -492,31 +512,20 @@ export function useMove(room, myKey, moveIdx, uTurnIdx = null) {
       entries[myKey][activeIdx[myKey]] = currentAttacker;
       log.push(`${attackerName}${josa(attackerName, "은는")} ${moveSlot.name}${josa(moveSlot.name, "으로")} 받는 데미지가 줄어들었다!`);
     }
-  } else if (moveData.defend) {
-    // 방어/판별: 상대의 공격 기술(위력>0)을 한 번 막을 때까지 유지. 가시 데미지 없음.
-    const attackerName = currentAttacker.name ?? "포켓몬";
-    log.push(`${attackerName}의 ${moveSlot.name}!`);
-    if (currentAttacker.protect) {
-      log.push(`${attackerName}${josa(attackerName, "은는")} 이미 방어 태세다!`);
-    } else {
-      currentAttacker = { ...currentAttacker, protect: moveSlot.name };
-      entries[myKey][activeIdx[myKey]] = currentAttacker;
-      log.push(`${attackerName}${josa(attackerName, "은는")} 방어 태세에 들어갔다!`);
-    }
-  } else if (defender.protect && moveData.power > 0 && !breaksProtection) {
+  } else if (defGuard && !defGuard.spiky && moveData.power > 0 && !breaksProtection) {
     // 상대의 방어/판별: 공격 기술을 막고 방어 상태 소모 (변화기는 막지 않음)
     const attackerName = currentAttacker.name ?? "포켓몬";
     const defenderName = defender.name ?? "포켓몬";
     log.push(`${attackerName}의 ${moveSlot.name}!`);
     log.push(`${defenderName}${josa(defenderName, "은는")} 공격으로부터 몸을 지켰다!`);
-    entries[oppKey][activeIdx[oppKey]] = { ...defender, protect: null };
-  } else if (defender.spikyShield && targetsOpponent(moveData) && !breaksProtection) {
+    entries[oppKey][activeIdx[oppKey]] = { ...defender, guard: null };
+  } else if (defGuard?.spiky && targetsOpponent(moveData) && !breaksProtection) {
     // 상대의 니들가드: 상대를 노리는 기술(공격기/변화기)을 막고(방패 소모), 사용한 쪽이 자기 최대 체력의 1/8 데미지
     const attackerName = currentAttacker.name ?? "포켓몬";
     const defenderName = defender.name ?? "포켓몬";
     log.push(`${attackerName}의 ${moveSlot.name}!`);
     log.push(`${defenderName}${josa(defenderName, "은는")} 몸을 지켰다!`);
-    entries[oppKey][activeIdx[oppKey]] = { ...defender, spikyShield: false };
+    entries[oppKey][activeIdx[oppKey]] = { ...defender, guard: null };
 
     const spikeDmg = Math.max(1, Math.floor((currentAttacker.maxHp ?? currentAttacker.hp) / 8));
     currentAttacker = { ...currentAttacker, hp: Math.max(0, currentAttacker.hp - spikeDmg) };
@@ -552,13 +561,11 @@ export function useMove(room, myKey, moveIdx, uTurnIdx = null) {
 
     // 고스트다이브 공격은 명중/회피와 상관없이 상대의 방어 상태(니들가드 등)를 없앰
     if (breaksProtection) {
-      const removed = activeProtections(defender);
-      if (removed.length > 0) {
-        defender = { ...defender };
-        for (const { flag } of removed) defender[flag] = flag === "protect" ? null : false;
+      if (defGuard) {
+        defender = { ...defender, guard: null };
         entries[oppKey][activeIdx[oppKey]] = defender;
         const dn = defender.name ?? "포켓몬";
-        log.push(`${dn}의 ${removed.map(({ name }) => name).join(", ")}${josa(removed[removed.length - 1].name, "이가")} 사라졌다!`);
+        log.push(`${dn}의 ${defGuard.name}${josa(defGuard.name, "이가")} 사라졌다!`);
       }
     }
 
@@ -703,10 +710,14 @@ export function useMove(room, myKey, moveIdx, uTurnIdx = null) {
   }
 
   // 연속자르기 누적: 맞히면 +1(상한까지), 빗나가거나 막히거나 다른 기술을 쓰면 0으로 초기화
+  // + 방어류 연속 사용 기록
   {
     const cur = entries[myKey][activeIdx[myKey]];
     const nextFury = moveData.furyCutter && furyCutterHit ? Math.min((cur.furyCutter ?? 0) + 1, FURY_CUTTER_MAX_STACK) : 0;
-    if ((cur.furyCutter ?? 0) !== nextFury) entries[myKey][activeIdx[myKey]] = { ...cur, furyCutter: nextFury };
+    // 방어류 연속 사용 판정: 이번 행동이 방어류 성공일 때만 true (실패/다른 행동이면 초기화)
+    if ((cur.furyCutter ?? 0) !== nextFury || !!cur.guardStreak !== guardSucceeded) {
+      entries[myKey][activeIdx[myKey]] = { ...cur, furyCutter: nextFury, guardStreak: guardSucceeded };
+    }
   }
 
   const pendingSides = new Set(directPendingSide ? [directPendingSide] : []);
@@ -744,9 +755,9 @@ export function useMove(room, myKey, moveIdx, uTurnIdx = null) {
   return ok(update);
 }
 
-// 교체로 들어가는 포켓몬에게서 해제되는 상태 (방어/니들가드/빛의장막·리플렉터/연속자르기 누적)
+// 교체로 들어가는 포켓몬에게서 해제되는 상태 (방어류/빛의장막·리플렉터/연속자르기 누적/방어류 연속 사용 기록)
 function clearOnSwitchOut(pokemon) {
-  return { ...pokemon, spikyShield: false, protect: null, screen: null, furyCutter: 0 };
+  return { ...pokemon, guard: null, guardStreak: false, screen: null, furyCutter: 0 };
 }
 
 // 교체 공통 처리(자발적 교체/강제 교체/유턴): 나가는 포켓몬 상태 정리 -> 내보내기 로그/연출 -> 장판 적용.
